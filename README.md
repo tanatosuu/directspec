@@ -7,7 +7,7 @@ Balancing Embedding Spectrum for Recommendation<br/>
 * Numpy==1.19.2<br/>
 * Pandas==1.1.4<br/>
 
-#Run the Algorithm
+# Run the Algorithm
 - Yelp
 ```bash
  python 'file_name.py' --dataset='yelp' --embedding_size=64 --lr=10 --reg=0.01 --batch_size=512 --alpha=0.8 --tau=3.0 --shrink_norm=0.0
