@@ -10,7 +10,7 @@ Balancing Embedding Spectrum for Recommendation<br/>
 # Run the Algorithm
 For GNN encoder, run store_graph_adj.py to generate the grpah embeddings:
 ```bash
- python 'store_graph_adj.py' --dataset=' ' --layer=3
+ python store_graph_adj.py --dataset=' ' --layer=
 ```
 
 - Yelp
