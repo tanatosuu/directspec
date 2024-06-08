@@ -4,27 +4,52 @@ from torch.autograd import Variable
 import numpy as np
 import pandas as pd
 import torch.nn.functional as F
+import argparse
 import time
 import gc
 
-#citeulike
-user,item=5551,16980
-#yelp
-#user,item=25677,25815
-#gowalla
-#user,item=29858,40981
+parser = argparse.ArgumentParser(description='Argument parser for the program.')
+
+parser.add_argument('--dataset', type=str, default='citelikeu', help='Dataset name')
+parser.add_argument('--embedding_size', type=int, default=64, help='Embedding size')
+parser.add_argument('--lr', type=float, default=180, help='Learning rate')
+parser.add_argument('--reg', type=float, default=1e-2, help='Regularization Coefficient')
+parser.add_argument('--batch_size', type=int, default=512, help='batch_size')
+parser.add_argument('--alpha', type=float, default=1.0, help='alpha')
+parser.add_argument('--tau', type=float, default=3.0, help='tau')
+parser.add_argument('--shrink_norm', type=float, default=0.03, help='shrinking the norm of embeddings')
+
+args = parser.parse_args()
+ 
+dataset = args.dataset
+embedding_size = args.embedding_size
+lr = args.lr
+reg = args.reg
+alpha = args.alpha
+tau = args.tau
+shrink_norm=args.shrink_norm
+batch_size=args.batch_size
+
+if dataset=='citeulike':
+	user,item=5551,16980
+
+elif dataset=='yelp':
+	user,item=25677,25815
+
+elif dataset=='gowalla':
+	user,item=29858,40981
+else:
+	 raise NotImplementedError(f"Dataset Error!")
 
 
 
-
-dataset='./citelikeu'
 
 
 result=[]
 #load train test data
 
-df_train=pd.read_csv(dataset+r'/train.csv')
-df_test=pd.read_csv(dataset+r'/test.csv')
+df_train=pd.read_csv("./"+dataset+r'/train.csv')
+df_test=pd.read_csv("./"+dataset+r'/test.csv')
 
 #load the  data
 train_samples=0
@@ -41,19 +66,23 @@ for row in df_test.itertuples():
 
 class DirectSpec(nn.Module):
 
-	def __init__(self, user_size, item_size, latent_size=64, alpha=0.7, tau=4,shrink_norm=0.02, batch_size=256,learning_rate=350):
+	def __init__(self, user_size, item_size, dataset, latent_size=64, alpha=0.8, tau=3,shrink_norm=1.0, batch_size=256,learning_rate=10,reg=0.01):
 		super(DirectSpec, self).__init__()
 		
 
 		self.user_size=user_size
 		self.item_size=item_size
+		self.dataset=dataset
 		self.latent_size=latent_size
 		self.alpha=alpha
 		self.tau=tau
 		self.shrink_norm=shrink_norm
 		self.batch_size=batch_size
 		self.lr=learning_rate
-		self.rate_matrix=torch.Tensor(np.load(dataset+r'/rate.npy')).cuda()
+		self.rate_matrix=torch.zeros(user_size,item_size).cuda()
+
+		for row in df_train.itertuples():
+			self.rate_matrix[row[1],row[2]]=1
 
 		self.user_embed=Variable(torch.nn.init.uniform_(torch.randn(user_size,latent_size),-np.sqrt(6. / (user_size+latent_size) ) ,np.sqrt(6. / (user_size+latent_size) )).cuda(),requires_grad=True)
 		self.item_embed=Variable(torch.nn.init.uniform_(torch.randn(item_size,latent_size),-np.sqrt(6. / (item_size+latent_size) ) ,np.sqrt(6. / (item_size+latent_size) )).cuda(),requires_grad=True)
@@ -78,8 +107,9 @@ class DirectSpec(nn.Module):
 		final_pos = final_pos - self.alpha* F.softmax(final_pos.mm(final_pos.t())*self.tau,1).mm(final_pos)
 			
 
-		final_user=final_user*(final_user.norm(2,dim=1).unsqueeze(1)*self.shrink_norm)
-		final_pos=final_pos*(final_pos.norm(2,dim=1).unsqueeze(1)*self.shrink_norm)
+		if self.shrink_norm!=0:
+			final_user=final_user*(final_user.norm(2,dim=1).unsqueeze(1)*self.shrink_norm)
+			final_pos=final_pos*(final_pos.norm(2,dim=1).unsqueeze(1)*self.shrink_norm)
 		
 		
 		out=((final_user*final_pos).sum(1)).sigmoid()
@@ -95,6 +125,16 @@ class DirectSpec(nn.Module):
 
 
 	def predict(self):
+
+		_,value,_=torch.svd(torch.cat([self.user_embed,self.item_embed]),compute_uv=False)
+		value = value/value.sum()
+
+		erank=torch.exp(-(value*torch.log(value)).sum()).detach().item()
+		print(erank)
+		del value,_
+		gc.collect()
+		torch.cuda.empty_cache()
+
 
 		return self.user_embed.mm(self.item_embed.t())-self.rate_matrix*1000
 
@@ -157,11 +197,11 @@ class DirectSpec(nn.Module):
 		result.append([ndcg10,ndcg20,recall10,recall20])
 
 
-model=DirectSpec(user,item)
+model=DirectSpec(user,item,dataset,embedding_size,alpha,tau,shrink_norm, batch_size,lr,reg)
 
 epoch=train_samples//model.batch_size
 
-for i in range(390):
+for i in range(300):
 	total_loss=0.0
 	#start=time.time()
 	for j in range(0,epoch):
@@ -182,7 +222,7 @@ for i in range(390):
 	print('epoch %d training loss:%f' %(i,total_loss/epoch))
 	model.lr*=0.9995
 	
-	if (i+1)%10==0 and (i+1)>=50 :
+	if (i+1)%30==0 and (i+1)>=30 :
 		model.test()
 	
 
